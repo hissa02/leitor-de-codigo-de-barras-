@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Leitor de Codigo de Barras</title>
+    <script src="https://docs.opencv.org/4.x/opencv.js"></script>
     <script src="https://unpkg.com/@ericblade/quagga2@1.8.4/dist/quagga.min.js"></script>
     <script src="https://unpkg.com/jsqr@1.4.0/dist/jsQR.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
@@ -216,11 +217,41 @@ function stopCamera() {
     document.getElementById('startBtn').className = 'btn-green';
 }
 
+function processarImagem(imageData) {
+    try {
+        if (typeof cv === 'undefined') return imageData;
+        
+        let src = cv.matFromImageData(imageData);
+        let dst = new cv.Mat();
+        
+        // Converte para cinza
+        cv.cvtColor(src, dst, cv.COLOR_RGBA2GRAY);
+        
+        // Aumenta contraste
+        cv.equalizeHist(dst, dst);
+        
+        // Converte de volta para RGBA
+        cv.cvtColor(dst, src, cv.COLOR_GRAY2RGBA);
+        
+        let processed = new ImageData(new Uint8ClampedArray(src.data), src.cols, src.rows);
+        
+        src.delete();
+        dst.delete();
+        
+        return processed;
+    } catch (e) {
+        return imageData;
+    }
+}
+
 function scanLoop() {
     if (!scanning) return;
     
     ctx.drawImage(video, 0, 0);
-    const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    let img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    
+    // Preprocessa com OpenCV
+    img = processarImagem(img);
     
     // QR Code
     const qr = jsQR(img.data, img.width, img.height);
@@ -230,6 +261,9 @@ function scanLoop() {
     
     // Barcode
     if (!cooldown) {
+        // Coloca imagem processada no canvas para o Quagga
+        ctx.putImageData(img, 0, 0);
+        
         Quagga.decodeSingle({
             src: canvas.toDataURL(),
             numOfWorkers: 0,
