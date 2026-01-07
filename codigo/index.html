@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Leitor de Codigo de Barras</title>
+    <script src="https://unpkg.com/@ericblade/quagga2@1.8.4/dist/quagga.min.js"></script>
+    <script src="https://unpkg.com/jsqr@1.4.0/dist/jsQR.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: system-ui, sans-serif; background: #111; color: #fff; min-height: 100vh; }
+        .container { max-width: 500px; margin: 0 auto; padding: 16px; }
+        h1 { font-size: 1.3rem; text-align: center; margin-bottom: 8px; }
+        
+        .status { text-align: center; padding: 8px; margin-bottom: 12px; border-radius: 8px; font-size: 0.85rem; }
+        .status.loading { background: #332800; color: #f59e0b; }
+        .status.ok { background: #052e16; color: #22c55e; }
+        .status.error { background: #350a0a; color: #ef4444; }
+        
+        .tabs { display: flex; gap: 4px; margin-bottom: 12px; }
+        .tab { flex: 1; padding: 10px; border: none; background: #222; color: #888; border-radius: 8px; cursor: pointer; }
+        .tab.active { background: #333; color: #fff; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        
+        .scanner { position: relative; width: 100%; aspect-ratio: 4/3; background: #222; border-radius: 12px; overflow: hidden; margin-bottom: 12px; }
+        .scanner video { width: 100%; height: 100%; object-fit: cover; }
+        .scanner-msg { display: flex; align-items: center; justify-content: center; height: 100%; color: #666; }
+        
+        .controls { display: flex; gap: 8px; margin-bottom: 16px; }
+        button { flex: 1; padding: 12px; border: none; border-radius: 8px; font-size: 0.9rem; cursor: pointer; }
+        .btn-green { background: #22c55e; color: #000; }
+        .btn-red { background: #dc2626; color: #fff; }
+        .btn-gray { background: #333; color: #fff; }
+        button:disabled { background: #333; color: #555; cursor: not-allowed; }
+        
+        .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: none; align-items: center; justify-content: center; padding: 20px; z-index: 100; }
+        .modal-bg.show { display: flex; }
+        .modal { background: #222; padding: 20px; border-radius: 12px; width: 100%; max-width: 350px; }
+        .modal h3 { margin-bottom: 12px; }
+        .modal-code { font-family: monospace; font-size: 1.2rem; color: #22c55e; margin-bottom: 8px; }
+        .modal-info { background: #333; padding: 12px; border-radius: 8px; margin-bottom: 16px; }
+        .modal-btns { display: flex; gap: 8px; }
+        
+        .item { background: #222; padding: 12px; border-radius: 8px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+        .item-info { flex: 1; }
+        .item-name { font-weight: 500; }
+        .item-brand { font-size: 0.8rem; color: #888; }
+        .item-code { font-size: 0.75rem; color: #666; font-family: monospace; }
+        .item-qty { display: flex; align-items: center; gap: 8px; }
+        .qty { background: #052e16; color: #22c55e; padding: 4px 12px; border-radius: 6px; font-weight: bold; }
+        .qty-btn { width: 28px; height: 28px; padding: 0; flex: none; font-size: 1.1rem; }
+        
+        .empty { text-align: center; color: #555; padding: 40px; }
+        .stats { display: flex; gap: 8px; margin-bottom: 16px; }
+        .stat { flex: 1; background: #222; padding: 12px; border-radius: 8px; text-align: center; }
+        .stat-val { font-size: 1.5rem; font-weight: bold; color: #22c55e; }
+        .stat-label { font-size: 0.75rem; color: #666; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Leitor de Codigo de Barras</h1>
+        
+        <div class="status loading" id="status">Carregando produtos_br.csv...</div>
+        
+        <div class="tabs">
+            <button class="tab active" onclick="showTab('scanner')">Scanner</button>
+            <button class="tab" onclick="showTab('estoque')">Estoque</button>
+            <button class="tab" onclick="showTab('historico')">Historico</button>
+        </div>
+        
+        <div class="tab-content active" id="tab-scanner">
+            <div class="scanner" id="scanner">
+                <div class="scanner-msg" id="scannerMsg">Aguardando CSV...</div>
+            </div>
+            <div class="controls">
+                <button class="btn-green" id="startBtn" disabled onclick="toggleCamera()">Iniciar Camera</button>
+                <button class="btn-gray" onclick="exportJSON()">Exportar JSON</button>
+            </div>
+        </div>
+        
+        <div class="tab-content" id="tab-estoque">
+            <div class="stats">
+                <div class="stat"><div class="stat-val" id="statProd">0</div><div class="stat-label">Produtos</div></div>
+                <div class="stat"><div class="stat-val" id="statItens">0</div><div class="stat-label">Itens</div></div>
+            </div>
+            <div id="estoqueList"><div class="empty">Nenhum produto</div></div>
+        </div>
+        
+        <div class="tab-content" id="tab-historico">
+            <div id="historicoList"><div class="empty">Nenhuma leitura</div></div>
+        </div>
+    </div>
+    
+    <div class="modal-bg" id="modal">
+        <div class="modal">
+            <h3>Produto Detectado</h3>
+            <div class="modal-code" id="modalCode"></div>
+            <div class="modal-info">
+                <div id="modalNome"></div>
+                <div id="modalMarca" style="color:#888;font-size:0.9rem"></div>
+            </div>
+            <div class="modal-btns">
+                <button class="btn-gray" onclick="closeModal()">Nao</button>
+                <button class="btn-green" onclick="confirmar()">Sim, Adicionar</button>
+            </div>
+        </div>
+    </div>
+
+<script>
+// Estado
+let produtos = {};
+let estoque = {};
+let leituras = [];
+let scanning = false;
+let video = null;
+let canvas = null;
+let ctx = null;
+let lastCode = null;
+let cooldown = false;
+let pendingCode = null;
+
+// Carrega CSV automaticamente
+fetch('produtos_br.csv')
+    .then(r => r.text())
+    .then(csv => {
+        Papa.parse(csv, {
+            header: true,
+            skipEmptyLines: true,
+            complete: (res) => {
+                res.data.forEach(row => {
+                    const code = (row.code || '').trim();
+                    if (code) produtos[code] = { nome: row.product_name || '', marca: row.brands || '' };
+                });
+                const n = Object.keys(produtos).length;
+                document.getElementById('status').className = 'status ok';
+                document.getElementById('status').textContent = n.toLocaleString() + ' produtos carregados';
+                document.getElementById('startBtn').disabled = false;
+                document.getElementById('scannerMsg').textContent = 'Clique em Iniciar Camera';
+            }
+        });
+    })
+    .catch(() => {
+        document.getElementById('status').className = 'status error';
+        document.getElementById('status').textContent = 'Erro: produtos_br.csv nao encontrado';
+    });
+
+// Tabs
+function showTab(name) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    event.target.classList.add('active');
+    document.getElementById('tab-' + name).classList.add('active');
+}
+
+// Camera
+async function toggleCamera() {
+    if (scanning) {
+        stopCamera();
+    } else {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+            video = document.createElement('video');
+            video.srcObject = stream;
+            video.setAttribute('playsinline', '');
+            video.play();
+            
+            canvas = document.createElement('canvas');
+            ctx = canvas.getContext('2d', { willReadFrequently: true });
+            
+            document.getElementById('scannerMsg').style.display = 'none';
+            document.getElementById('scanner').appendChild(video);
+            
+            video.onloadedmetadata = () => {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                scanning = true;
+                document.getElementById('startBtn').textContent = 'Parar';
+                document.getElementById('startBtn').className = 'btn-red';
+                scanLoop();
+            };
+        } catch (e) {
+            alert('Erro ao acessar camera');
+        }
+    }
+}
+
+function stopCamera() {
+    scanning = false;
+    if (video) {
+        video.srcObject.getTracks().forEach(t => t.stop());
+        video.remove();
+        video = null;
+    }
+    document.getElementById('scannerMsg').style.display = 'flex';
+    document.getElementById('startBtn').textContent = 'Iniciar Camera';
+    document.getElementById('startBtn').className = 'btn-green';
+}
+
+function scanLoop() {
+    if (!scanning) return;
+    
+    ctx.drawImage(video, 0, 0);
+    const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    
+    // QR Code
+    const qr = jsQR(img.data, img.width, img.height);
+    if (qr && qr.data && !cooldown && qr.data !== lastCode) {
+        detectado(qr.data);
+    }
+    
+    // Barcode
+    if (!cooldown) {
+        Quagga.decodeSingle({
+            src: canvas.toDataURL(),
+            numOfWorkers: 0,
+            decoder: { readers: ['ean_reader', 'ean_8_reader', 'upc_reader'] },
+            locate: true
+        }, (res) => {
+            if (res && res.codeResult && res.codeResult.code !== lastCode && !cooldown) {
+                detectado(res.codeResult.code);
+            }
+        });
+    }
+    
+    requestAnimationFrame(scanLoop);
+}
+
+function detectado(code) {
+    lastCode = code;
+    cooldown = true;
+    pendingCode = code;
+    
+    const p = produtos[code];
+    document.getElementById('modalCode').textContent = code;
+    document.getElementById('modalNome').textContent = p ? (p.nome || 'Sem nome') : 'Produto nao encontrado no CSV';
+    document.getElementById('modalMarca').textContent = p && p.marca ? 'Marca: ' + p.marca : '';
+    document.getElementById('modal').classList.add('show');
+}
+
+function closeModal() {
+    document.getElementById('modal').classList.remove('show');
+    pendingCode = null;
+    setTimeout(() => { cooldown = false; lastCode = null; }, 1000);
+}
+
+function confirmar() {
+    if (!pendingCode) return;
+    
+    const code = pendingCode;
+    const p = produtos[code] || { nome: 'Desconhecido', marca: '' };
+    
+    if (!estoque[code]) estoque[code] = { codigo: code, nome: p.nome, marca: p.marca, qtd: 0 };
+    estoque[code].qtd++;
+    
+    leituras.push({
+        codigo: code,
+        produto: p.nome,
+        marca: p.marca,
+        hora: new Date().toISOString().replace('T', ' ').substring(0, 19)
+    });
+    
+    updateUI();
+    closeModal();
+}
+
+function updateUI() {
+    // Stats
+    const prods = Object.keys(estoque).length;
+    const itens = Object.values(estoque).reduce((s, p) => s + p.qtd, 0);
+    document.getElementById('statProd').textContent = prods;
+    document.getElementById('statItens').textContent = itens;
+    
+    // Estoque
+    const el = document.getElementById('estoqueList');
+    if (prods === 0) {
+        el.innerHTML = '<div class="empty">Nenhum produto</div>';
+    } else {
+        el.innerHTML = Object.values(estoque).map(p => `
+            <div class="item">
+                <div class="item-info">
+                    <div class="item-name">${p.nome || 'Sem nome'}</div>
+                    <div class="item-brand">${p.marca || ''}</div>
+                    <div class="item-code">${p.codigo}</div>
+                </div>
+                <div class="item-qty">
+                    <button class="btn-gray qty-btn" onclick="alterarQtd('${p.codigo}', -1)">-</button>
+                    <span class="qty">${p.qtd}</span>
+                    <button class="btn-gray qty-btn" onclick="alterarQtd('${p.codigo}', 1)">+</button>
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    // Historico
+    const hl = document.getElementById('historicoList');
+    if (leituras.length === 0) {
+        hl.innerHTML = '<div class="empty">Nenhuma leitura</div>';
+    } else {
+        hl.innerHTML = [...leituras].reverse().map(l => `
+            <div class="item">
+                <div class="item-info">
+                    <div class="item-name">${l.produto || 'Desconhecido'}</div>
+                    <div class="item-brand">${l.marca || ''}</div>
+                    <div class="item-code">${l.codigo} - ${l.hora.split(' ')[1]}</div>
+                </div>
+            </div>
+        `).join('');
+    }
+}
+
+function alterarQtd(code, delta) {
+    if (!estoque[code]) return;
+    estoque[code].qtd += delta;
+    if (estoque[code].qtd <= 0) delete estoque[code];
+    updateUI();
+}
+
+function exportJSON() {
+    const blob = new Blob([JSON.stringify(leituras, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'leituras.json';
+    a.click();
+}
+</script>
+</body>
+</html>
