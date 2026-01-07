@@ -28,6 +28,10 @@
         .scanner video { width: 100%; height: 100%; object-fit: cover; }
         .scanner-msg { display: flex; align-items: center; justify-content: center; height: 100%; color: #666; }
         
+        .zoom { display: none; align-items: center; gap: 10px; margin-bottom: 12px; }
+        .zoom.show { display: flex; }
+        .zoom span { font-size: 0.8rem; color: #888; }
+        .zoom input { flex: 1; }
         .controls { display: flex; gap: 8px; margin-bottom: 16px; }
         button { flex: 1; padding: 12px; border: none; border-radius: 8px; font-size: 0.9rem; cursor: pointer; }
         .btn-green { background: #22c55e; color: #000; }
@@ -75,6 +79,11 @@
             <div class="scanner" id="scanner">
                 <div class="scanner-msg" id="scannerMsg">Aguardando CSV...</div>
             </div>
+            <div class="zoom" id="zoomControl">
+                <span>1x</span>
+                <input type="range" min="1" max="4" step="0.1" value="1" id="zoomSlider" oninput="setZoom(this.value)">
+                <span id="zoomVal">1x</span>
+            </div>
             <div class="controls">
                 <button class="btn-green" id="startBtn" disabled onclick="toggleCamera()">Iniciar Camera</button>
                 <button class="btn-gray" onclick="exportJSON()">Exportar JSON</button>
@@ -121,6 +130,7 @@ let ctx = null;
 let lastCode = null;
 let cooldown = false;
 let pendingCode = null;
+let track = null;
 
 // Carrega CSV automaticamente
 fetch('produtos_br.csv')
@@ -162,6 +172,8 @@ async function toggleCamera() {
     } else {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+            track = stream.getVideoTracks()[0];
+            
             video = document.createElement('video');
             video.srcObject = stream;
             video.setAttribute('playsinline', '');
@@ -172,6 +184,7 @@ async function toggleCamera() {
             
             document.getElementById('scannerMsg').style.display = 'none';
             document.getElementById('scanner').appendChild(video);
+            document.getElementById('zoomControl').classList.add('show');
             
             video.onloadedmetadata = () => {
                 canvas.width = video.videoWidth;
@@ -194,6 +207,10 @@ function stopCamera() {
         video.remove();
         video = null;
     }
+    track = null;
+    document.getElementById('zoomControl').classList.remove('show');
+    document.getElementById('zoomSlider').value = 1;
+    document.getElementById('zoomVal').textContent = '1x';
     document.getElementById('scannerMsg').style.display = 'flex';
     document.getElementById('startBtn').textContent = 'Iniciar Camera';
     document.getElementById('startBtn').className = 'btn-green';
@@ -316,6 +333,15 @@ function alterarQtd(code, delta) {
     estoque[code].qtd += delta;
     if (estoque[code].qtd <= 0) delete estoque[code];
     updateUI();
+}
+
+function setZoom(val) {
+    document.getElementById('zoomVal').textContent = parseFloat(val).toFixed(1) + 'x';
+    if (track) {
+        try {
+            track.applyConstraints({ advanced: [{ zoom: parseFloat(val) }] });
+        } catch (e) {}
+    }
 }
 
 function exportJSON() {
