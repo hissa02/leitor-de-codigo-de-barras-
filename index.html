@@ -108,9 +108,13 @@
         <div class="modal">
             <h3>Produto Detectado</h3>
             <div class="modal-code" id="modalCode"></div>
-            <div class="modal-info">
+            <div class="modal-info" id="modalInfo">
                 <div id="modalNome"></div>
                 <div id="modalMarca" style="color:#888;font-size:0.9rem"></div>
+            </div>
+            <div class="modal-input" id="modalInput" style="display:none;margin-bottom:16px;">
+                <input type="text" id="inputNome" placeholder="Nome do produto" style="width:100%;padding:10px;border:none;border-radius:6px;margin-bottom:8px;background:#333;color:#fff;">
+                <input type="text" id="inputMarca" placeholder="Marca" style="width:100%;padding:10px;border:none;border-radius:6px;background:#333;color:#fff;">
             </div>
             <div class="modal-btns">
                 <button class="btn-gray" onclick="closeModal()">Nao</button>
@@ -286,8 +290,20 @@ function detectado(code) {
     
     const p = produtos[code];
     document.getElementById('modalCode').textContent = code;
-    document.getElementById('modalNome').textContent = p ? (p.nome || 'Sem nome') : 'Produto nao encontrado no CSV';
-    document.getElementById('modalMarca').textContent = p && p.marca ? 'Marca: ' + p.marca : '';
+    
+    if (p) {
+        document.getElementById('modalNome').textContent = p.nome || 'Sem nome';
+        document.getElementById('modalMarca').textContent = p.marca ? 'Marca: ' + p.marca : '';
+        document.getElementById('modalInfo').style.display = 'block';
+        document.getElementById('modalInput').style.display = 'none';
+    } else {
+        document.getElementById('modalNome').textContent = 'Produto nao encontrado no CSV';
+        document.getElementById('modalMarca').textContent = 'Preencha os dados abaixo:';
+        document.getElementById('modalInput').style.display = 'block';
+        document.getElementById('inputNome').value = '';
+        document.getElementById('inputMarca').value = '';
+    }
+    
     document.getElementById('modal').classList.add('show');
 }
 
@@ -301,7 +317,13 @@ function confirmar() {
     if (!pendingCode) return;
     
     const code = pendingCode;
-    const p = produtos[code] || { nome: 'Desconhecido', marca: '' };
+    let p = produtos[code];
+    
+    if (!p) {
+        const nome = document.getElementById('inputNome').value.trim() || 'Desconhecido';
+        const marca = document.getElementById('inputMarca').value.trim() || '';
+        p = { nome, marca };
+    }
     
     if (!estoque[code]) estoque[code] = { codigo: code, nome: p.nome, marca: p.marca, qtd: 0 };
     estoque[code].qtd++;
