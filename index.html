@@ -323,6 +323,7 @@ function confirmar() {
         const nome = document.getElementById('inputNome').value.trim() || 'Desconhecido';
         const marca = document.getElementById('inputMarca').value.trim() || '';
         p = { nome, marca };
+        produtos[code] = p; // Salva para lembrar depois
     }
     
     if (!estoque[code]) estoque[code] = { codigo: code, nome: p.nome, marca: p.marca, qtd: 0 };
